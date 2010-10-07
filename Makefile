@@ -1,6 +1,9 @@
 all: wikiq
 
 wikiq: wikiq.c
-	gcc wikiq.c -o wikiq -lexpat
+	gcc -O3 wikiq.c -o wikiq -lexpat
 
-.PHONY: all
+clean:
+	rm -f wikiq
+
+.PHONY: all clean
