@@ -24,7 +24,7 @@ enum elements {
 
 enum block { TITLE_BLOCK, REVISION_BLOCK, CONTRIBUTOR_BLOCK, SKIP };
 
-enum outtype { NORMAL, SIMPLE };
+enum outtype { FULL, SIMPLE };
 
 typedef struct {
 
@@ -38,12 +38,11 @@ typedef struct {
         char *anon;
         char *editor;
         char *editorid;
-        char *minor;
+        bool minor;
         char *comment;
         char *text;
     } rev;
     
-    char *dropstr;
     enum elements element;
     enum block position;
     enum outtype output_type;
@@ -70,7 +69,7 @@ clean_data(revisionData *data, int title)
     data->rev.anon = NULL;
     data->rev.editor = NULL;
     data->rev.editorid = NULL;
-    data->rev.minor = NULL;
+    data->rev.minor = false;
     data->rev.comment = NULL; 
     data->rev.text = NULL;
     data->element = UNUSED;
@@ -92,27 +91,25 @@ free_data(revisionData *data, int title)
     free(data->rev.anon);
     free(data->rev.editor);
     free(data->rev.editorid);
-    free(data->rev.minor);
     free(data->rev.comment);
     free(data->rev.text);
 }
 
-cleanup_revision(revisionData *data) {
+void cleanup_revision(revisionData *data) {
     free_data(data, 0);
     clean_data(data, 0);
 }
 
-cleanup_article(revisionData *data) {
+void cleanup_article(revisionData *data) {
     free_data(data, 1);
     clean_data(data, 1);
 }
 
 
 static void 
-init_data(revisionData *data, char *dropstr, int output_type)
+init_data(revisionData *data, outtype output_type)
 {
     clean_data(data, 1); // sets every element to null...
-    data->dropstr = dropstr;
     data->output_type = output_type;
 }
 
@@ -131,7 +128,7 @@ print_state(revisionData *data)
     printf("anon = %s\n", data->rev.anon);
     printf("editor = %s\n", data->rev.editor);
     printf("editorid = %s\n", data->rev.editorid);
-    printf("minor = %s\n", data->rev.minor);
+    printf("minor = %s\n", (data->rev.minor ? "1" : "0"));
     printf("comment = %s\n", data->rev.comment); 
     printf("text = %s\n", data->rev.text);
     printf("\n");
@@ -160,71 +157,29 @@ write_header()
 static void
 write_row(revisionData *data)
 {
-    // define temporary variables to hold output values:
-    char *title, *articleid; 
-    char *revid, *date, *time, *anon, *editor, *editorid;
-    char *minor, *comment;
-    char *text;
-    // perform some simple logic to obtain correct output values
-
-    if (data->rev.minor == NULL)
-        minor = "0";
-    else minor = data->rev.minor;
-
-    if (data->rev.editor == NULL)
-        anon = "1";
-    else anon = "0";
-
-    if (data->rev.title ==  NULL)
-        title = "";
-    else title = data->rev.title;
-
-    if (data->rev.articleid == NULL)
-        articleid = "";
-    else articleid = data->rev.articleid;
-
-    if (data->rev.revid == NULL)
-        revid = "";
-    else revid = data->rev.revid;
-
-    if (data->rev.date == NULL)
-        date = "";
-    else date = data->rev.date;
-
-    if (data->rev.time == NULL)
-        time = "";
-    else time = data->rev.time;
-
-    if (data->rev.editor == NULL)
-        editor = "";
-    else editor = data->rev.editor;
-    
-    if (data->rev.editorid == NULL)
-        editorid = "";
-    else editorid = data->rev.editorid;
-
-    if (data->rev.text == NULL)
-        text = "";
-    else text = data->rev.text;
-
-    
-    if (data->rev.comment == NULL)
-        comment = "";
-    else comment = data->rev.comment;
-    
 
     // TODO: make it so you can specify fields to output
     // note that date and time are separated by a space, to match postgres's 
     // timestamp format
+    printf("%s\t%s\t%s\t%s %s\t%s\t%s\t%s\t%s",
+        (data->rev.title != NULL) ? data->rev.title : "",
+        (data->rev.articleid != NULL) ? data->rev.articleid : "",
+        (data->rev.revid != NULL) ? data->rev.revid : "",
+        (data->rev.date != NULL) ? data->rev.date : "",
+        (data->rev.time != NULL) ? data->rev.time : "",
+        (data->rev.editor != NULL) ? "0" : "1",
+        (data->rev.editor != NULL) ? data->rev.editor : "",
+        (data->rev.editorid != NULL) ? data->rev.editorid  : "",
+        (data->rev.minor) ? "1" : "0");
     switch (data->output_type)
     {
-        case NORMAL:
-            printf("%s\t%s\t%s\t%s %s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-                title,articleid,revid,date,time,anon,editor,editorid,minor,comment,text);
-            break;
         case SIMPLE:
-            printf("%s\t%s\t%s\t%s %s\t%s\t%s\t%s\t%s\n",
-                title,articleid,revid,date,time,anon,editor,editorid,minor);
+            printf("\n");
+            break;
+        case FULL:
+            printf("\t%s\t%s\n",
+                (data->rev.comment != NULL) ? data->rev.comment : "",
+                (data->rev.text != NULL) ? data->rev.text : "");
             break;
     }
 
@@ -247,36 +202,36 @@ static char
 }
 
 char
-*append(char *entry, char *new)
+*append(char *entry, char *newstr)
 {
     char *newbuff;
     int len;
-    len = (strlen(entry)+strlen(new))*sizeof(char) + 1;
-    newbuff = realloc(entry, len);
-    strcat(newbuff, new);
+    len = (strlen(entry)+strlen(newstr))*sizeof(char) + 1;
+    newbuff = (char*) realloc(entry, len);
+    strcat(newbuff, newstr);
     return newbuff;
 }
 
 char
-*cache(char *entry, char *new)
+*cache(char *entry, char *newstr)
 {
     char *newbuff;
     int len;
-    len = strlen(new)*sizeof(char) + 1; // include space for the '\0' !
-    newbuff = malloc(len);
-    strcpy(newbuff,new);
+    len = strlen(newstr)*sizeof(char) + 1; // include space for the '\0' !
+    newbuff = (char*) malloc(len);
+    strcpy(newbuff,newstr);
     return newbuff;
 
 }
 
 char
-*store(char *entry, char *new)
+*store(char *entry, char *newstr)
 {
     char *newbuff;
     if (entry == NULL)
-        newbuff = cache(entry, new);
+        newbuff = cache(entry, newstr);
     else 
-        newbuff = append(entry, new);
+        newbuff = append(entry, newstr);
     return newbuff;
 }
 
@@ -327,8 +282,9 @@ contains(char *s, char *t)
 }
 
 static void
-charhndl(revisionData *data, char *s, int len)
+charhndl(void* vdata, const XML_Char* s, int len)
 { 
+    revisionData* data = (revisionData*) vdata;
     if (data->element != UNUSED && data->position != SKIP) {
         char t[len];
         strncpy(t,s,len);
@@ -338,10 +294,6 @@ charhndl(revisionData *data, char *s, int len)
                 {
                     data->rev.title = store(data->rev.title, t);
                     // skip any articles with bad characters in their titles
-                    if (contains(t, data->dropstr)) {
-                        data->position = SKIP;
-                        //printf("found a baddie\n");
-                    }
                     break;
                 }
             case ARTICLEID:
@@ -384,8 +336,9 @@ charhndl(revisionData *data, char *s, int len)
 }
 
 static void
-start(revisionData *data, const char *name, const char **attr)
+start(void* vdata, const XML_Char* name, const XML_Char** attr)
 {
+    revisionData* data = (revisionData*) vdata;
     
     if (strcmp(name,"title") == 0) {
         cleanup_article(data); // cleans up data from last article
@@ -414,7 +367,7 @@ start(revisionData *data, const char *name, const char **attr)
         // minor tag has no character data, so we parse here
         else if (strcmp(name,"minor") == 0) {
             data->element = MINOR;
-            data->rev.minor = store(data->rev.minor, "1"); 
+            data->rev.minor = true; 
         }
         else if (strcmp(name,"timestamp") == 0)
             data->element = TIMESTAMP;
@@ -442,8 +395,9 @@ start(revisionData *data, const char *name, const char **attr)
 
 
 static void
-end(revisionData *data, const char *name)
+end(void* vdata, const XML_Char* name)
 {
+    revisionData* data = (revisionData*) vdata;
     if (strcmp(name, "revision") == 0 && data->position != SKIP) {
         write_row(data); // crucial... :)
         cleanup_revision(data);  // also crucial
@@ -472,24 +426,20 @@ int
 main(int argc, char *argv[])
 {
     
-    char *dropstr = "";
     enum outtype output_type;
     int dry_run = 0;
     // in "simple" output, we don't print text and comments
     output_type = SIMPLE;
     char c;
 
-    while ((c = getopt(argc, argv, "hr:sd")) != -1)
+    while ((c = getopt(argc, argv, "hsd")) != -1)
         switch (c)
         {
-            case 'r':
-                dropstr = optarg;
-                break;
             case 'd':
                 dry_run = 1;
                 break;
             case 't':
-                output_type = NORMAL;
+                output_type = FULL;
                 break;
             case 'h':
                 print_usage(argv);
@@ -499,7 +449,6 @@ main(int argc, char *argv[])
 
     if (dry_run) { // lets us print initialization options
         printf("simple_output = %i\n", output_type);
-        printf("dropstr = %s\n", dropstr);
         exit(1);
     }
 
@@ -509,15 +458,19 @@ main(int argc, char *argv[])
     // initialize the user data struct which is passed to callback functions
     revisionData data;  
     // initialize the elements of the struct to default values
-    init_data(&data, dropstr, output_type);
+    init_data(&data, output_type);
 
 
     // makes the parser pass "data" as the first argument to every callback 
     XML_SetUserData(parser, &data);
+    void (*startFnPtr)(void*, const XML_Char*, const XML_Char**) = start;
+    void (*endFnPtr)(void*, const XML_Char*) = end;
+    void (*charHandlerFnPtr)(void*, const XML_Char*, int) = charhndl;
+
     // sets start and end to be the element start and end handlers
-    XML_SetElementHandler(parser, (void *) start, (void *) end);
+    XML_SetElementHandler(parser, startFnPtr, endFnPtr);
     // sets charhndl to be the callback for raw character data
-    XML_SetCharacterDataHandler(parser, (void *) charhndl);
+    XML_SetCharacterDataHandler(parser, charHandlerFnPtr);
 
     int done;
     char buf[BUFSIZ];

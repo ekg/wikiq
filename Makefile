@@ -1,6 +1,12 @@
+CXX = g++
+CFLAGS = -O3
+
 all: wikiq
 
 wikiq: wikiq.c
-	gcc wikiq.c -o wikiq -lexpat
+	$(CXX) $(CFLAGS) wikiq.c -o wikiq -lexpat
+
+clean:
+	rm -f wikiq
 
 .PHONY: all
