@@ -48,7 +48,7 @@ typedef struct {
     enum block position;
     enum outtype output_type;
     
-} parseData;
+} revisionData;
 
 
 /* free_data and clean_data
@@ -57,7 +57,7 @@ typedef struct {
  * Also, frees memory dynamically allocated to store data.
  */ 
 static void
-clean_data(parseData *data, int title)
+clean_data(revisionData *data, int title)
 {
     if (title) {
         data->rev.title = NULL;
@@ -78,7 +78,7 @@ clean_data(parseData *data, int title)
 }
 
 static void
-free_data(parseData *data, int title)
+free_data(revisionData *data, int title)
 {
     if (title) {
         //printf("freeing article\n");
@@ -97,19 +97,19 @@ free_data(parseData *data, int title)
     free(data->rev.text);
 }
 
-cleanup_revision(parseData *data) {
+cleanup_revision(revisionData *data) {
     free_data(data, 0);
     clean_data(data, 0);
 }
 
-cleanup_article(parseData *data) {
+cleanup_article(revisionData *data) {
     free_data(data, 1);
     clean_data(data, 1);
 }
 
 
 static void 
-init_data(parseData *data, char *dropstr, int output_type)
+init_data(revisionData *data, char *dropstr, int output_type)
 {
     clean_data(data, 1); // sets every element to null...
     data->dropstr = dropstr;
@@ -119,7 +119,7 @@ init_data(parseData *data, char *dropstr, int output_type)
 /* for debugging only, prints out the state of the data struct
  */
 static void
-print_state(parseData *data) 
+print_state(revisionData *data) 
 {
     printf("element = %i\n", data->element);
     printf("output_type = %i\n", data->output_type);
@@ -158,7 +158,7 @@ write_header()
  * it is called right before cleanup_revision() and cleanup_article()
  */
 static void
-write_row(parseData *data)
+write_row(revisionData *data)
 {
     // define temporary variables to hold output values:
     char *title, *articleid; 
@@ -281,7 +281,7 @@ char
 }
 
 void
-split_timestamp(parseData *data) 
+split_timestamp(revisionData *data) 
 {
     char *t = data->rev.timestamp;
     char date_buffer[DATE_LENGTH+1];
@@ -327,7 +327,7 @@ contains(char *s, char *t)
 }
 
 static void
-charhndl(parseData *data, char *s, int len)
+charhndl(revisionData *data, char *s, int len)
 { 
     if (data->element != UNUSED && data->position != SKIP) {
         char t[len];
@@ -384,7 +384,7 @@ charhndl(parseData *data, char *s, int len)
 }
 
 static void
-start(parseData *data, const char *name, const char **attr)
+start(revisionData *data, const char *name, const char **attr)
 {
     
     if (strcmp(name,"title") == 0) {
@@ -442,7 +442,7 @@ start(parseData *data, const char *name, const char **attr)
 
 
 static void
-end(parseData *data, const char *name)
+end(revisionData *data, const char *name)
 {
     if (strcmp(name, "revision") == 0 && data->position != SKIP) {
         write_row(data); // crucial... :)
@@ -507,7 +507,7 @@ main(int argc, char *argv[])
     XML_Parser parser = XML_ParserCreate(NULL);
 
     // initialize the user data struct which is passed to callback functions
-    parseData data;  
+    revisionData data;  
     // initialize the elements of the struct to default values
     init_data(&data, dropstr, output_type);
 
