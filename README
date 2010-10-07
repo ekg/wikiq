@@ -1,0 +1,13 @@
+wikiq: a WikiMedia XML data dump to .tsv parser
+
+author: Erik Garrison <erik@hypervolu.me>
+
+wikiq is written in C using expat.  It is designed to enable researchers to
+rapidly extract revision histories (minus text and comments) from impossibly
+large XML datasets.
+
+To use, first make sure you have libexpat installed, then:
+
+    % make
+    % ./wikiq -h  # prints usage
+    % 7za e -so hugewikidatadump.xml | ./wikiq >hugewikidatadump.tsv
