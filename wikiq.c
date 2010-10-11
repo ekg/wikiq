@@ -325,10 +325,14 @@ charhndl(void* vdata, const XML_Char* s, int len)
             */
             case COMMENT: 
                    // printf("row: comment is %s\n", t);
-                    data->rev.comment = store(data->rev.comment, t);
+                    if (data->output_type == FULL) {
+                        data->rev.comment = store(data->rev.comment, t);
+                    }
                     break;
             case TEXT:
-                   data->rev.text = store(data->rev.text, t);
+                    if (data->output_type == FULL) {
+                        data->rev.text = store(data->rev.text, t);
+                    }
                    break; 
             default: break;
         }
@@ -432,7 +436,7 @@ main(int argc, char *argv[])
     output_type = SIMPLE;
     char c;
 
-    while ((c = getopt(argc, argv, "hsd")) != -1)
+    while ((c = getopt(argc, argv, "ht")) != -1)
         switch (c)
         {
             case 'd':
