@@ -17,6 +17,10 @@
 #define TIME_LENGTH 8
 #define TIMESTAMP_LENGTH 20
 
+// 2048 KB in bytes + 1
+#define TEXT_BUFFER_SIZE 2097153
+#define FIELD_BUFFER_SIZE 1024
+
 enum elements { 
     TITLE, ARTICLEID, REVISION, REVID, TIMESTAMP, CONTRIBUTOR, 
     EDITOR, EDITORID, MINOR, COMMENT, UNUSED, TEXT
@@ -28,20 +32,18 @@ enum outtype { FULL, SIMPLE };
 
 typedef struct {
 
-    struct {
-        char *title;
-        char *articleid;
-        char *revid;
-        char *date;
-        char *time;
-        char *timestamp;
-        char *anon;
-        char *editor;
-        char *editorid;
-        bool minor;
-        char *comment;
-        char *text;
-    } rev;
+    char *title;
+    char *articleid;
+    char *revid;
+    char *date;
+    char *time;
+    char *timestamp;
+    char *anon;
+    char *editor;
+    char *editorid;
+    bool minor;
+    char *comment;
+    char text[TEXT_BUFFER_SIZE];
     
     enum elements element;
     enum block position;
@@ -59,19 +61,19 @@ static void
 clean_data(revisionData *data, int title)
 {
     if (title) {
-        data->rev.title = NULL;
-        data->rev.articleid = NULL;
+        data->title = NULL;
+        data->articleid = NULL;
     }
-    data->rev.revid = NULL;
-    data->rev.date = NULL;
-    data->rev.time = NULL;
-    data->rev.timestamp = NULL;
-    data->rev.anon = NULL;
-    data->rev.editor = NULL;
-    data->rev.editorid = NULL;
-    data->rev.minor = false;
-    data->rev.comment = NULL; 
-    data->rev.text = NULL;
+    data->revid = NULL;
+    data->date = NULL;
+    data->time = NULL;
+    data->timestamp = NULL;
+    data->anon = NULL;
+    data->editor = NULL;
+    data->editorid = NULL;
+    data->minor = false;
+    data->comment = NULL; 
+    //data->text = NULL;
     data->element = UNUSED;
     //data->position = 
 }
@@ -81,18 +83,19 @@ free_data(revisionData *data, int title)
 {
     if (title) {
         //printf("freeing article\n");
-        free(data->rev.title);
-        free(data->rev.articleid);
+        free(data->title);
+        free(data->articleid);
     }
-    free(data->rev.revid);
-    free(data->rev.date);
-    free(data->rev.time);
-    free(data->rev.timestamp);
-    free(data->rev.anon);
-    free(data->rev.editor);
-    free(data->rev.editorid);
-    free(data->rev.comment);
-    free(data->rev.text);
+    free(data->revid);
+    free(data->date);
+    free(data->time);
+    free(data->timestamp);
+    free(data->anon);
+    free(data->editor);
+    free(data->editorid);
+    free(data->comment);
+    //free(data->text);
+    data->text[0] = '\0';
 }
 
 void cleanup_revision(revisionData *data) {
@@ -120,17 +123,17 @@ print_state(revisionData *data)
 {
     printf("element = %i\n", data->element);
     printf("output_type = %i\n", data->output_type);
-    printf("title = %s\n", data->rev.title);
-    printf("articleid = %s\n", data->rev.articleid);
-    printf("revid = %s\n", data->rev.revid);
-    printf("date = %s\n", data->rev.date);
-    printf("time = %s\n", data->rev.time);
-    printf("anon = %s\n", data->rev.anon);
-    printf("editor = %s\n", data->rev.editor);
-    printf("editorid = %s\n", data->rev.editorid);
-    printf("minor = %s\n", (data->rev.minor ? "1" : "0"));
-    printf("comment = %s\n", data->rev.comment); 
-    printf("text = %s\n", data->rev.text);
+    printf("title = %s\n", data->title);
+    printf("articleid = %s\n", data->articleid);
+    printf("revid = %s\n", data->revid);
+    printf("date = %s\n", data->date);
+    printf("time = %s\n", data->time);
+    printf("anon = %s\n", data->anon);
+    printf("editor = %s\n", data->editor);
+    printf("editorid = %s\n", data->editorid);
+    printf("minor = %s\n", (data->minor ? "1" : "0"));
+    printf("comment = %s\n", data->comment); 
+    printf("text = %s\n", data->text);
     printf("\n");
 
 }
@@ -162,30 +165,28 @@ write_row(revisionData *data)
     // note that date and time are separated by a space, to match postgres's 
     // timestamp format
     printf("%s\t%s\t%s\t%s %s\t%s\t%s\t%s\t%s",
-        (data->rev.title != NULL) ? data->rev.title : "",
-        (data->rev.articleid != NULL) ? data->rev.articleid : "",
-        (data->rev.revid != NULL) ? data->rev.revid : "",
-        (data->rev.date != NULL) ? data->rev.date : "",
-        (data->rev.time != NULL) ? data->rev.time : "",
-        (data->rev.editor != NULL) ? "0" : "1",
-        (data->rev.editor != NULL) ? data->rev.editor : "",
-        (data->rev.editorid != NULL) ? data->rev.editorid  : "",
-        (data->rev.minor) ? "1" : "0");
+        (data->title != NULL) ? data->title : "",
+        (data->articleid != NULL) ? data->articleid : "",
+        (data->revid != NULL) ? data->revid : "",
+        (data->date != NULL) ? data->date : "",
+        (data->time != NULL) ? data->time : "",
+        (data->editor != NULL) ? "0" : "1",
+        (data->editor != NULL) ? data->editor : "",
+        (data->editorid != NULL) ? data->editorid  : "",
+        (data->minor) ? "1" : "0");
     switch (data->output_type)
     {
         case SIMPLE:
-            printf("\n");
+            printf("\t%i\n", (unsigned int) strlen(data->text));
             break;
         case FULL:
-            printf("\t%s\t%s\n",
-                (data->rev.comment != NULL) ? data->rev.comment : "",
-                (data->rev.text != NULL) ? data->rev.text : "");
+            printf("\t%s\t%s\n", data->comment, data->text);
             break;
     }
 
 }
 
-static char
+void
 *timestr(char *timestamp, char time_buffer[TIME_LENGTH+1])
 {
     char *timeinstamp = &timestamp[DATE_LENGTH+1];
@@ -194,7 +195,7 @@ static char
 }
 
 
-static char
+void
 *datestr(char *timestamp, char date_buffer[DATE_LENGTH+1])
 {
     strncpy(date_buffer, timestamp, DATE_LENGTH);
@@ -238,13 +239,13 @@ char
 void
 split_timestamp(revisionData *data) 
 {
-    char *t = data->rev.timestamp;
+    char *t = data->timestamp;
     char date_buffer[DATE_LENGTH+1];
     char time_buffer[TIME_LENGTH+1];
     datestr(t, date_buffer);
     timestr(t, time_buffer);
-    data->rev.date = store(data->rev.date, date_buffer);
-    data->rev.time = store(data->rev.time, time_buffer);
+    data->date = store(data->date, date_buffer);
+    data->time = store(data->time, time_buffer);
 }
 
 /* currently unused */
@@ -261,27 +262,6 @@ is_whitespace(char *string) {
 }
 
 static void
-squeeze(char *s, int c) {
-    int i, j;
-    for (i = j = 0; s[i] != '\0'; i++)
-        if (s[i] != c)
-            s[j++] = s[i];
-    s[j] = '\0';
-}
-
-int
-contains(char *s, char *t)
-{
-    char c = t[0]; //just get the first character of t
-    int i = 0;
-    while (s[i] != '\0') {
-        if (s[i] == c) 
-            return 1;
-        i++;
-    }
-}
-
-static void
 charhndl(void* vdata, const XML_Char* s, int len)
 { 
     revisionData* data = (revisionData*) vdata;
@@ -292,30 +272,30 @@ charhndl(void* vdata, const XML_Char* s, int len)
         switch (data->element) {
             case TITLE:
                 {
-                    data->rev.title = store(data->rev.title, t);
+                    data->title = store(data->title, t);
                     // skip any articles with bad characters in their titles
                     break;
                 }
             case ARTICLEID:
                    // printf("articleid = %s\n", t);
-                    data->rev.articleid = store(data->rev.articleid, t);
+                    data->articleid = store(data->articleid, t);
                     break;
             case REVID:
                    // printf("revid = %s\n", t);
-                    data->rev.revid = store(data->rev.revid, t);
+                    data->revid = store(data->revid, t);
                     break;
             case TIMESTAMP: 
-                    data->rev.timestamp = store(data->rev.timestamp, t); 
-                    if (strlen(data->rev.timestamp) == TIMESTAMP_LENGTH)
+                    data->timestamp = store(data->timestamp, t); 
+                    if (strlen(data->timestamp) == TIMESTAMP_LENGTH)
                         split_timestamp(data);
                     break;
             case EDITOR: {
-                    data->rev.editor = store(data->rev.editor, t);
+                    data->editor = store(data->editor, t);
                     break;
                     }
             case EDITORID: 
                     //printf("editorid = %s\n", t);
-                    data->rev.editorid = store(data->rev.editorid, t);
+                    data->editorid = store(data->editorid, t);
                     break;
             /* the following are implied or skipped:
             case MINOR: 
@@ -325,14 +305,16 @@ charhndl(void* vdata, const XML_Char* s, int len)
             */
             case COMMENT: 
                    // printf("row: comment is %s\n", t);
-                    if (data->output_type == FULL) {
-                        data->rev.comment = store(data->rev.comment, t);
-                    }
+                    //if (data->output_type == FULL) {
+                        data->comment = store(data->comment, t);
+                    //}
                     break;
             case TEXT:
-                    if (data->output_type == FULL) {
-                        data->rev.text = store(data->rev.text, t);
-                    }
+                    //if (data->output_type == FULL) {
+                        //data->text = store(data->text, t);
+                        //
+                    strcat(data->text, t);
+                    //}
                    break; 
             default: break;
         }
@@ -371,7 +353,7 @@ start(void* vdata, const XML_Char* name, const XML_Char** attr)
         // minor tag has no character data, so we parse here
         else if (strcmp(name,"minor") == 0) {
             data->element = MINOR;
-            data->rev.minor = true; 
+            data->minor = true; 
         }
         else if (strcmp(name,"timestamp") == 0)
             data->element = TIMESTAMP;

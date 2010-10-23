@@ -9,4 +9,7 @@ wikiq: wikiq.c
 clean:
 	rm -f wikiq
 
-.PHONY: all
+gprof:
+	$(MAKE) CFLAGS=-pg wikiq
+
+.PHONY: all gprof
