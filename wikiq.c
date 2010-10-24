@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include "expat.h"
 #include <getopt.h>
+#include "disorder.h"
 
 // timestamp of the form 2003-11-07T00:43:23Z
 #define DATE_LENGTH 10
@@ -225,7 +226,7 @@ write_row(revisionData *data)
     switch (data->output_type)
     {
         case SIMPLE:
-            printf("\t%i\n", (unsigned int) strlen(data->text));
+            printf("\t%i\t%f\n", (unsigned int) strlen(data->text), shannon_H(data->text, data->text_size));
             //printf("\n");
             break;
         case FULL:
@@ -235,40 +236,6 @@ write_row(revisionData *data)
 
 }
 
-char
-*append(char *entry, char *newstr)
-{
-    char *newbuff;
-    int len;
-    len = (strlen(entry)+strlen(newstr))*sizeof(char) + 1;
-    newbuff = (char*) realloc(entry, len);
-    strcat(newbuff, newstr);
-    return newbuff;
-}
-
-char
-*cache(char *entry, char *newstr)
-{
-    char *newbuff;
-    int len;
-    len = strlen(newstr)*sizeof(char) + 1; // include space for the '\0' !
-    newbuff = (char*) malloc(len);
-    strcpy(newbuff,newstr);
-    return newbuff;
-
-}
-
-char
-*store(char *entry, char *newstr)
-{
-    char *newbuff;
-    if (entry == NULL)
-        newbuff = cache(entry, newstr);
-    else 
-        newbuff = append(entry, newstr);
-    return newbuff;
-}
-
 void
 split_timestamp(revisionData *data) 
 {
@@ -276,19 +243,6 @@ split_timestamp(revisionData *data)
     strncpy(data->date, data->timestamp, DATE_LENGTH);
     char *timeinstamp = &data->timestamp[DATE_LENGTH+1];
     strncpy(data->time, timeinstamp, TIME_LENGTH);
-}
-
-/* currently unused */
-static int
-is_whitespace(char *string) {
-    int len = strlen(string);
-    while (isspace(string[0]) && strlen(string) > 0) {
-        string++;
-    }
-    if (strcmp(string, "") == 0)
-        return 1;
-    else
-        return 0;
 }
 
 // like strncat but with previously known length
