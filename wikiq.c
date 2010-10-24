@@ -11,15 +11,16 @@
 #include "expat.h"
 #include <getopt.h>
 
-#define BUFFER_SIZE 80
 // timestamp of the form 2003-11-07T00:43:23Z
 #define DATE_LENGTH 10
 #define TIME_LENGTH 8
 #define TIMESTAMP_LENGTH 20
 
-// 2048 KB in bytes + 1
-#define TEXT_BUFFER_SIZE 2097153
+#define MEGABYTE 1048576
 #define FIELD_BUFFER_SIZE 1024
+// 2048 KB in bytes + 1
+//#define TEXT_BUFFER_SIZE 2097153
+//#define TEXT_BUFFER_SIZE 10485760
 
 enum elements { 
     TITLE, ARTICLEID, REVISION, REVID, TIMESTAMP, CONTRIBUTOR, 
@@ -32,6 +33,7 @@ enum outtype { FULL, SIMPLE };
 
 typedef struct {
 
+    // pointers to once-allocated buffers
     char *title;
     char *articleid;
     char *revid;
@@ -41,9 +43,24 @@ typedef struct {
     char *anon;
     char *editor;
     char *editorid;
-    bool minor;
     char *comment;
-    char text[TEXT_BUFFER_SIZE];
+    char *text;
+
+    // track string size of the elements, to prevent O(N^2) processing in charhndl
+    // when we have to take strlen for every character which we append to the buffer
+    size_t title_size;
+    size_t articleid_size;
+    size_t revid_size;
+    size_t date_size;
+    size_t time_size;
+    size_t timestamp_size;
+    size_t anon_size;
+    size_t editor_size;
+    size_t editorid_size;
+    size_t comment_size;
+    size_t text_size;
+
+    bool minor;
     
     enum elements element;
     enum block position;
@@ -60,24 +77,43 @@ typedef struct {
 static void
 clean_data(revisionData *data, int title)
 {
+    // reset title (if we are switching articles)
     if (title) {
-        data->title = NULL;
-        data->articleid = NULL;
+        data->title[0] = '\0';
+        data->articleid[0] = '\0';
+        data->title_size = 0;
+        data->articleid_size = 0;
     }
-    data->revid = NULL;
-    data->date = NULL;
-    data->time = NULL;
-    data->timestamp = NULL;
-    data->anon = NULL;
-    data->editor = NULL;
-    data->editorid = NULL;
+
+    // reset text fields
+    data->revid[0] = '\0';
+    data->date[0] = '\0';
+    data->time[0] = '\0';
+    data->timestamp[0] = '\0';
+    data->anon[0] = '\0';
+    data->editor[0] = '\0';
+    data->editorid[0] = '\0';
+    data->comment[0] = '\0';
+    data->text[0] = '\0';
+
+    // reset length tracking
+    data->revid_size = 0;
+    data->date_size = 0;
+    data->time_size = 0;
+    data->timestamp_size = 0;
+    data->anon_size = 0;
+    data->editor_size = 0;
+    data->editorid_size = 0;
+    data->comment_size = 0;
+    data->text_size = 0;
+
+    // reset flags and element type info
     data->minor = false;
-    data->comment = NULL; 
-    //data->text = NULL;
     data->element = UNUSED;
-    //data->position = 
+
 }
 
+// presently unused
 static void
 free_data(revisionData *data, int title)
 {
@@ -94,17 +130,14 @@ free_data(revisionData *data, int title)
     free(data->editor);
     free(data->editorid);
     free(data->comment);
-    //free(data->text);
-    data->text[0] = '\0';
+    free(data->text);
 }
 
 void cleanup_revision(revisionData *data) {
-    free_data(data, 0);
     clean_data(data, 0);
 }
 
 void cleanup_article(revisionData *data) {
-    free_data(data, 1);
     clean_data(data, 1);
 }
 
@@ -112,7 +145,22 @@ void cleanup_article(revisionData *data) {
 static void 
 init_data(revisionData *data, outtype output_type)
 {
-    clean_data(data, 1); // sets every element to null...
+    data->text = (char*) malloc(4 * MEGABYTE);  // 2MB is the article length limit, 4MB is 'safe'?
+    data->comment = (char*) malloc(FIELD_BUFFER_SIZE);
+    data->title = (char*) malloc(FIELD_BUFFER_SIZE);
+    data->articleid = (char*) malloc(FIELD_BUFFER_SIZE);
+    data->revid = (char*) malloc(FIELD_BUFFER_SIZE);
+    data->date = (char*) malloc(FIELD_BUFFER_SIZE);
+    data->time = (char*) malloc(FIELD_BUFFER_SIZE);
+    data->timestamp = (char*) malloc(FIELD_BUFFER_SIZE);
+    data->anon = (char*) malloc(FIELD_BUFFER_SIZE);
+    data->editor = (char*) malloc(FIELD_BUFFER_SIZE);
+    data->editorid = (char*) malloc(FIELD_BUFFER_SIZE);
+    data->minor = false;
+
+    // resets the data fields, null terminates strings, sets lengths
+    clean_data(data, 1);
+
     data->output_type = output_type;
 }
 
@@ -165,41 +213,26 @@ write_row(revisionData *data)
     // note that date and time are separated by a space, to match postgres's 
     // timestamp format
     printf("%s\t%s\t%s\t%s %s\t%s\t%s\t%s\t%s",
-        (data->title != NULL) ? data->title : "",
-        (data->articleid != NULL) ? data->articleid : "",
-        (data->revid != NULL) ? data->revid : "",
-        (data->date != NULL) ? data->date : "",
-        (data->time != NULL) ? data->time : "",
-        (data->editor != NULL) ? "0" : "1",
-        (data->editor != NULL) ? data->editor : "",
-        (data->editorid != NULL) ? data->editorid  : "",
+        data->title,
+        data->articleid,
+        data->revid,
+        data->date,
+        data->time,
+        (data->editor[0] != '\0') ? "0" : "1",  // anon?
+        data->editor,
+        data->editorid,
         (data->minor) ? "1" : "0");
     switch (data->output_type)
     {
         case SIMPLE:
             printf("\t%i\n", (unsigned int) strlen(data->text));
+            //printf("\n");
             break;
         case FULL:
             printf("\t%s\t%s\n", data->comment, data->text);
             break;
     }
 
-}
-
-void
-*timestr(char *timestamp, char time_buffer[TIME_LENGTH+1])
-{
-    char *timeinstamp = &timestamp[DATE_LENGTH+1];
-    strncpy(time_buffer, timeinstamp, TIME_LENGTH);
-    time_buffer[TIME_LENGTH] = '\0'; // makes it a well-formed string
-}
-
-
-void
-*datestr(char *timestamp, char date_buffer[DATE_LENGTH+1])
-{
-    strncpy(date_buffer, timestamp, DATE_LENGTH);
-    date_buffer[DATE_LENGTH] = '\0';
 }
 
 char
@@ -240,12 +273,9 @@ void
 split_timestamp(revisionData *data) 
 {
     char *t = data->timestamp;
-    char date_buffer[DATE_LENGTH+1];
-    char time_buffer[TIME_LENGTH+1];
-    datestr(t, date_buffer);
-    timestr(t, time_buffer);
-    data->date = store(data->date, date_buffer);
-    data->time = store(data->time, time_buffer);
+    strncpy(data->date, data->timestamp, DATE_LENGTH);
+    char *timeinstamp = &data->timestamp[DATE_LENGTH+1];
+    strncpy(data->time, timeinstamp, TIME_LENGTH);
 }
 
 /* currently unused */
@@ -261,41 +291,66 @@ is_whitespace(char *string) {
         return 0;
 }
 
+// like strncat but with previously known length
+char*
+strlcatn(char *dest, const char *src, size_t dest_len, size_t n)
+{
+   //size_t dest_len = strlen(dest);
+   size_t i;
+
+   for (i = 0 ; i < n && src[i] != '\0' ; i++)
+       dest[dest_len + i] = src[i];
+   dest[dest_len + i] = '\0';
+
+   return dest;
+}
+
 static void
 charhndl(void* vdata, const XML_Char* s, int len)
 { 
     revisionData* data = (revisionData*) vdata;
     if (data->element != UNUSED && data->position != SKIP) {
-        char t[len];
-        strncpy(t,s,len);
-        t[len] = '\0'; // makes t a well-formed string
+        //char t[len];
+        //strncpy(t,s,len);
+        //t[len] = '\0'; // makes t a well-formed string
         switch (data->element) {
-            case TITLE:
-                {
-                    data->title = store(data->title, t);
-                    // skip any articles with bad characters in their titles
+            case TEXT:
+                   // printf("buffer length = %i, text: %s\n", len, t);
+                    strlcatn(data->text, s, data->text_size, len);
+                    data->text_size += len;
                     break;
-                }
+            case COMMENT:
+                    strlcatn(data->comment, s, data->comment_size, len);
+                    data->comment_size += len;
+                    break;
+            case TITLE:
+                    strlcatn(data->title, s, data->title_size, len);
+                    data->title_size += len;
+                    break;
             case ARTICLEID:
                    // printf("articleid = %s\n", t);
-                    data->articleid = store(data->articleid, t);
+                    strlcatn(data->articleid, s, data->articleid_size, len);
+                    data->articleid_size += len;
                     break;
             case REVID:
                    // printf("revid = %s\n", t);
-                    data->revid = store(data->revid, t);
+                    strlcatn(data->revid, s, data->revid_size, len);
+                    data->revid_size += len;
                     break;
             case TIMESTAMP: 
-                    data->timestamp = store(data->timestamp, t); 
+                    strlcatn(data->timestamp, s, data->timestamp_size, len);
+                    data->timestamp_size += len;
                     if (strlen(data->timestamp) == TIMESTAMP_LENGTH)
                         split_timestamp(data);
                     break;
-            case EDITOR: {
-                    data->editor = store(data->editor, t);
+            case EDITOR:
+                    strlcatn(data->editor, s, data->editor_size, len);
+                    data->editor_size += len;
                     break;
-                    }
             case EDITORID: 
                     //printf("editorid = %s\n", t);
-                    data->editorid = store(data->editorid, t);
+                    strlcatn(data->editorid, s, data->editorid_size, len);
+                    data->editorid_size += len;
                     break;
             /* the following are implied or skipped:
             case MINOR: 
@@ -303,19 +358,6 @@ charhndl(void* vdata, const XML_Char* s, int len)
                     break;                   minor tag is just a tag
             case UNUSED: 
             */
-            case COMMENT: 
-                   // printf("row: comment is %s\n", t);
-                    //if (data->output_type == FULL) {
-                        data->comment = store(data->comment, t);
-                    //}
-                    break;
-            case TEXT:
-                    //if (data->output_type == FULL) {
-                        //data->text = store(data->text, t);
-                        //
-                    strcat(data->text, t);
-                    //}
-                   break; 
             default: break;
         }
     }
@@ -402,7 +444,7 @@ void print_usage(char* argv[]) {
     fprintf(stderr, "Takes a wikimedia data dump XML stream on standard in, and produces\n");
     fprintf(stderr, "a tab-separated stream of revisions on standard out:\n");
     fprintf(stderr, "\n");
-    fprintf(stderr, "title, articleid, revid, date, time, anon, editor, editorid, minor\n");
+    fprintf(stderr, "title, articleid, revid, date, time, anon, editor, editorid, minor, revlength\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "author: Erik Garrison <erik@hypervolu.me>\n");
 }
@@ -439,7 +481,7 @@ main(int argc, char *argv[])
     }
 
     // create a new instance of the expat parser
-    XML_Parser parser = XML_ParserCreate(NULL);
+    XML_Parser parser = XML_ParserCreate("UTF-8");
 
     // initialize the user data struct which is passed to callback functions
     revisionData data;  
@@ -455,20 +497,18 @@ main(int argc, char *argv[])
 
     // sets start and end to be the element start and end handlers
     XML_SetElementHandler(parser, startFnPtr, endFnPtr);
-    // sets charhndl to be the callback for raw character data
+    // sets charhndl to be the callback for character data
     XML_SetCharacterDataHandler(parser, charHandlerFnPtr);
 
-    int done;
+    bool done;
     char buf[BUFSIZ];
     
-    write_header();
-
     // shovel data into the parser
     do {
         
         // read into buf a bufferfull of data from standard input
-        size_t len = fread(buf, 1, sizeof(buf), stdin);
-        done = len < sizeof(buf); // checks if we've got the last bufferfull
+        size_t len = fread(buf, 1, BUFSIZ, stdin);
+        done = len < BUFSIZ; // checks if we've got the last bufferfull
         
         // passes the buffer of data to the parser and checks for error
         //   (this is where the callbacks are invoked)
