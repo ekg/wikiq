@@ -11,6 +11,7 @@
 #include "expat.h"
 #include <getopt.h>
 #include "disorder.h"
+#include "md5.h"
 
 // timestamp of the form 2003-11-07T00:43:23Z
 #define DATE_LENGTH 10
@@ -210,10 +211,20 @@ static void
 write_row(revisionData *data)
 {
 
-    // TODO: make it so you can specify fields to output
-    // note that date and time are separated by a space, to match postgres's 
-    // timestamp format
-    printf("%s\t%s\t%s\t%s %s\t%s\t%s\t%s\t%s",
+    // get md5sum
+    md5_state_t state;
+    md5_byte_t digest[16];
+    char md5_hex_output[2 * 16 + 1];
+    md5_init(&state);
+    md5_append(&state, (const md5_byte_t *)data->text, data->text_size);
+    md5_finish(&state, digest);
+    int di;
+    for (di = 0; di < 16; ++di) {
+        sprintf(md5_hex_output + di * 2, "%02x", digest[di]);
+    }
+
+    // print line of tsv output
+    printf("%s\t%s\t%s\t%s %s\t%s\t%s\t%s\t%s\t%i\t%f\t%s\n",
         data->title,
         data->articleid,
         data->revid,
@@ -222,16 +233,15 @@ write_row(revisionData *data)
         (data->editor[0] != '\0') ? "0" : "1",  // anon?
         data->editor,
         data->editorid,
-        (data->minor) ? "1" : "0");
-    switch (data->output_type)
-    {
-        case SIMPLE:
-            printf("\t%i\t%f\n", (unsigned int) strlen(data->text), shannon_H(data->text, data->text_size));
-            //printf("\n");
-            break;
-        case FULL:
-            printf("\t%s\t%s\n", data->comment, data->text);
-            break;
+        (data->minor) ? "1" : "0",
+        (unsigned int) data->text_size,
+        shannon_H(data->text, data->text_size),
+        md5_hex_output
+        );
+
+    // 
+    if (data->output_type == FULL) {
+        printf("comment:%s\ntext:\n%s\n", data->comment, data->text);
     }
 
 }
@@ -398,7 +408,7 @@ void print_usage(char* argv[]) {
     fprintf(stderr, "Takes a wikimedia data dump XML stream on standard in, and produces\n");
     fprintf(stderr, "a tab-separated stream of revisions on standard out:\n");
     fprintf(stderr, "\n");
-    fprintf(stderr, "title, articleid, revid, date, time, anon, editor, editorid, minor, revlength\n");
+    fprintf(stderr, "title, articleid, revid, timestamp, anon, editor, editorid, minor, revlength, reventropy, revmd5\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "author: Erik Garrison <erik@hypervolu.me>\n");
 }
