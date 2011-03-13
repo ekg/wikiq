@@ -4,8 +4,8 @@ OBJECTS = disorder.o md5.o
 
 all: wikiq
 
-wikiq: wikiq.c $(OBJECTS)
-	$(CXX) $(CFLAGS) wikiq.c $(OBJECTS) -o wikiq -lexpat
+wikiq: wikiq.cpp $(OBJECTS)
+	$(CXX) $(CFLAGS) wikiq.cpp $(OBJECTS) -o wikiq -lexpat
 
 disorder.o: disorder.c disorder.h
 	$(CXX) $(CFLAGS) -c disorder.c

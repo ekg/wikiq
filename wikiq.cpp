@@ -5,6 +5,7 @@
  */
 
 #include <stdio.h>
+#include <iostream>
 #include <string.h>
 #include <ctype.h>
 #include <stdlib.h>
@@ -12,6 +13,10 @@
 #include <getopt.h>
 #include "disorder.h"
 #include "md5.h"
+#include "dtl/dtl.hpp"
+#include <vector>
+
+using namespace std;
 
 // timestamp of the form 2003-11-07T00:43:23Z
 #define DATE_LENGTH 10
@@ -47,6 +52,7 @@ typedef struct {
     char *editorid;
     char *comment;
     char *text;
+    vector<string> last_tokens;
 
     // track string size of the elements, to prevent O(N^2) processing in charhndl
     // when we have to take strlen for every character which we append to the buffer
@@ -133,6 +139,7 @@ free_data(revisionData *data, int title)
     free(data->editorid);
     free(data->comment);
     free(data->text);
+    data->last_tokens.clear();
 }
 
 void cleanup_revision(revisionData *data) {
@@ -141,6 +148,7 @@ void cleanup_revision(revisionData *data) {
 
 void cleanup_article(revisionData *data) {
     clean_data(data, 1);
+    data->last_tokens.clear();
 }
 
 
@@ -223,8 +231,57 @@ write_row(revisionData *data)
         sprintf(md5_hex_output + di * 2, "%02x", digest[di]);
     }
 
+    string text = string(data->text, data->text_size);
+    vector<string> text_tokens;
+    size_t period_pos = 0;
+    size_t paragraph_pos = 0;
+    size_t start = 0;
+    while ((period_pos = text.find(".", period_pos + 1)) != string::npos &&
+            (paragraph_pos = text.find("\n\n", paragraph_pos + 1)) != string::npos) {
+        if (paragraph_pos < period_pos) {
+            text_tokens.push_back(text.substr(start, paragraph_pos - start));
+            start = paragraph_pos;
+        } else {
+            text_tokens.push_back(text.substr(start, period_pos - start));
+            start = period_pos;
+        }
+    }
+
+    vector<string> additions;
+    vector<string> deletions;
+
+    if (data->last_tokens.empty()) {
+        data->last_tokens = text_tokens;
+    } else {
+        // do the diff
+        
+        dtl::Diff< string, vector<string> > d(data->last_tokens, text_tokens);
+        //d.onOnlyEditDistance();
+        d.compose();
+
+        vector<pair<string, dtl::elemInfo> > ses_v = d.getSes().getSequence();
+        for (vector<pair<string, dtl::elemInfo> >::iterator sit=ses_v.begin(); sit!=ses_v.end(); ++sit) {
+            switch (sit->second.type) {
+            case dtl::SES_ADD:
+                cout << "ADD: \"" << sit->first << "\"" << endl;
+                additions.push_back(sit->first);
+                break;
+            case dtl::SES_DELETE:
+                cout << "DEL: \"" << sit->first << "\"" << endl;
+                deletions.push_back(sit->first);
+                break;
+            }
+        }
+
+        // apply regex to the diff
+
+
+        data->last_tokens = text_tokens;
+    }
+
+
     // print line of tsv output
-    printf("%s\t%s\t%s\t%s %s\t%s\t%s\t%s\t%s\t%i\t%f\t%s\n",
+    printf("%s\t%s\t%s\t%s %s\t%s\t%s\t%s\t%s\t%i\t%f\t%s\t%i\t%i\n",
         data->title,
         data->articleid,
         data->revid,
@@ -236,7 +293,9 @@ write_row(revisionData *data)
         (data->minor) ? "1" : "0",
         (unsigned int) data->text_size,
         shannon_H(data->text, data->text_size),
-        md5_hex_output
+        md5_hex_output,
+        (int) additions.size(),
+        (int) deletions.size()
         );
 
     // 
