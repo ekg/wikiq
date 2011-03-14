@@ -494,8 +494,14 @@ void print_usage(char* argv[]) {
          << "Takes a wikimedia data dump XML stream on standard in, and produces" << endl
          << "a tab-separated stream of revisions on standard out:" << endl
          << endl
-         << "title, articleid, revid, timestamp, anon, editor, editorid, minor, revlength, reventropy, revmd5" << endl
+         << "title, articleid, revid, timestamp, anon, editor, editorid, minor," << endl
+         << "text_length, text_entropy, text_md5, reversion, additions_size, deletions_size" << endl
          << ".... and additional fields for each regex executed against add/delete diffs" << endl
+         << endl
+         << "Notes:" << endl
+         << "Boolean fields are TRUE/FALSE except in the case of reversion, which is blank" << endl
+         << "unless the article is a revert to a previous revision, in which case, it" << endl
+         << "contains the revision ID of the revision which was reverted to." << endl
          << endl
          << "author: Erik Garrison <erik@hypervolu.me>" << endl;
 }
