@@ -15,6 +15,9 @@
 #include "md5.h"
 #include "dtl/dtl.hpp"
 #include <vector>
+#include <map>
+#include <pcrecpp.h>
+
 
 using namespace std;
 
@@ -52,7 +55,10 @@ typedef struct {
     char *editorid;
     char *comment;
     char *text;
-    vector<string> last_tokens;
+    vector<string> last_text_tokens;
+    vector<pcrecpp::RE> regexes;
+    vector<string> regex_names;
+    map<string, string> revision_md5; // used for detecting reversions
 
     // track string size of the elements, to prevent O(N^2) processing in charhndl
     // when we have to take strlen for every character which we append to the buffer
@@ -139,7 +145,7 @@ free_data(revisionData *data, int title)
     free(data->editorid);
     free(data->comment);
     free(data->text);
-    data->last_tokens.clear();
+    data->last_text_tokens.clear();
 }
 
 void cleanup_revision(revisionData *data) {
@@ -148,7 +154,8 @@ void cleanup_revision(revisionData *data) {
 
 void cleanup_article(revisionData *data) {
     clean_data(data, 1);
-    data->last_tokens.clear();
+    data->last_text_tokens.clear();
+    data->revision_md5.clear();
 }
 
 
@@ -196,16 +203,6 @@ print_state(revisionData *data)
 
 }
 
-/* Write a header for the comma-separated output
- */
-static void
-write_header()
-{
- //   printf("title, articleid, revid, date, time, anon, editor, editorid, minor, comment\n");
-//    printf("title\tarticleid\trevid\tdate time\tanon\teditor\teditorid\tminor\n");
-
-}
-
 
 /* 
  * write a line of comma-separated value formatted data to standard out
@@ -231,31 +228,36 @@ write_row(revisionData *data)
         sprintf(md5_hex_output + di * 2, "%02x", digest[di]);
     }
 
+    string reverted_to;
+    map<string, string>::iterator prev_revision = data->revision_md5.find(md5_hex_output);
+    if (prev_revision != data->revision_md5.end()) {
+        reverted_to = prev_revision->second; // id of previous revision
+    }
+    data->revision_md5[md5_hex_output] = data->revid;
+
     string text = string(data->text, data->text_size);
     vector<string> text_tokens;
-    size_t period_pos = 0;
-    size_t paragraph_pos = 0;
+    size_t pos = 0;
     size_t start = 0;
-    while ((period_pos = text.find(".", period_pos + 1)) != string::npos &&
-            (paragraph_pos = text.find("\n\n", paragraph_pos + 1)) != string::npos) {
-        if (paragraph_pos < period_pos) {
-            text_tokens.push_back(text.substr(start, paragraph_pos - start));
-            start = paragraph_pos;
-        } else {
-            text_tokens.push_back(text.substr(start, period_pos - start));
-            start = period_pos;
-        }
+    while ((pos = text.find_first_of(" \n\t\r", pos)) != string::npos) {
+        //cout << "\"\"\"" << text.substr(start, pos - start) << "\"\"\"" << endl;
+        text_tokens.push_back(text.substr(start, pos - start));
+        start = pos;
+        ++pos;
     }
 
-    vector<string> additions;
-    vector<string> deletions;
+    //vector<string> additions;
+    //vector<string> deletions;
+    string additions;
+    string deletions;
 
-    if (data->last_tokens.empty()) {
-        data->last_tokens = text_tokens;
-    } else {
+    vector<bool> regex_matches_adds;
+    vector<bool> regex_matches_dels;
+
+    if (!data->last_text_tokens.empty()) {
         // do the diff
         
-        dtl::Diff< string, vector<string> > d(data->last_tokens, text_tokens);
+        dtl::Diff< string, vector<string> > d(data->last_text_tokens, text_tokens);
         //d.onOnlyEditDistance();
         d.compose();
 
@@ -263,44 +265,67 @@ write_row(revisionData *data)
         for (vector<pair<string, dtl::elemInfo> >::iterator sit=ses_v.begin(); sit!=ses_v.end(); ++sit) {
             switch (sit->second.type) {
             case dtl::SES_ADD:
-                cout << "ADD: \"" << sit->first << "\"" << endl;
-                additions.push_back(sit->first);
+                //cout << "ADD: \"" << sit->first << "\"" << endl;
+                additions += sit->first;
                 break;
             case dtl::SES_DELETE:
-                cout << "DEL: \"" << sit->first << "\"" << endl;
-                deletions.push_back(sit->first);
+                //cout << "DEL: \"" << sit->first << "\"" << endl;
+                deletions += sit->first;
                 break;
+            }
+        }
+
+        if (!additions.empty()) {
+            //cout << "ADD: " << additions << endl;
+            for (vector<pcrecpp::RE>::iterator r = data->regexes.begin(); r != data->regexes.end(); ++r) {
+                pcrecpp::RE& regex = *r;
+                regex_matches_adds.push_back(regex.PartialMatch(additions));
+            }
+        }
+
+        if (!deletions.empty()) {
+            //cout << "DEL: " << deletions << endl;
+            for (vector<pcrecpp::RE>::iterator r = data->regexes.begin(); r != data->regexes.end(); ++r) {
+                pcrecpp::RE& regex = *r;
+                regex_matches_dels.push_back(regex.PartialMatch(deletions));
             }
         }
 
         // apply regex to the diff
 
-
-        data->last_tokens = text_tokens;
     }
+
+    data->last_text_tokens = text_tokens;
 
 
     // print line of tsv output
-    printf("%s\t%s\t%s\t%s %s\t%s\t%s\t%s\t%s\t%i\t%f\t%s\t%i\t%i\n",
-        data->title,
-        data->articleid,
-        data->revid,
-        data->date,
-        data->time,
-        (data->editor[0] != '\0') ? "0" : "1",  // anon?
-        data->editor,
-        data->editorid,
-        (data->minor) ? "1" : "0",
-        (unsigned int) data->text_size,
-        shannon_H(data->text, data->text_size),
-        md5_hex_output,
-        (int) additions.size(),
-        (int) deletions.size()
-        );
+    cout
+        << data->title << "\t"
+        << data->articleid << "\t"
+        << data->revid << "\t"
+        << data->date << " "
+        << data->time << "\t"
+        << ((data->editor[0] != '\0') ? "FALSE" : "TRUE") << "\t"
+        << data->editor << "\t"
+        << data->editorid << "\t"
+        << ((data->minor) ? "TRUE" : "FALSE") << "\t"
+        << (unsigned int) data->text_size << "\t"
+        << shannon_H(data->text, data->text_size) << "\t"
+        << md5_hex_output << "\t"
+        << reverted_to << "\t"
+        << (int) additions.size() << "\t"
+        << (int) deletions.size();
+
+    for (int n = 0; n < data->regex_names.size(); ++n) {
+        cout << "\t" << ((!regex_matches_adds.empty() && regex_matches_adds.at(n)) ? "TRUE" : "FALSE")
+             << "\t" << ((!regex_matches_dels.empty() && regex_matches_dels.at(n)) ? "TRUE" : "FALSE");
+    }
+    cout << endl;
 
     // 
     if (data->output_type == FULL) {
-        printf("comment:%s\ntext:\n%s\n", data->comment, data->text);
+        cout << "comment:" << data->comment << endl
+             << "text:" << endl << data->text << endl;
     }
 
 }
@@ -459,17 +484,20 @@ end(void* vdata, const XML_Char* name)
 }
 
 void print_usage(char* argv[]) {
-    fprintf(stderr, "usage: <wikimedia dump xml> | %s [options]\n", argv[0]);
-    fprintf(stderr, "\n");
-    fprintf(stderr, "options:\n");
-    fprintf(stderr, "  -t   print text and comments after each line of tab separated data\n");
-    fprintf(stderr, "\n");
-    fprintf(stderr, "Takes a wikimedia data dump XML stream on standard in, and produces\n");
-    fprintf(stderr, "a tab-separated stream of revisions on standard out:\n");
-    fprintf(stderr, "\n");
-    fprintf(stderr, "title, articleid, revid, timestamp, anon, editor, editorid, minor, revlength, reventropy, revmd5\n");
-    fprintf(stderr, "\n");
-    fprintf(stderr, "author: Erik Garrison <erik@hypervolu.me>\n");
+    cerr << "usage: <wikimedia dump xml> | " << argv[0] << "[options]" << endl
+         << endl
+         << "options:" << endl
+         << "  -t   print text and comments after each line of tab separated data" << endl
+         << "  -n   name of the following regex (e.g. -N name -r \"...\")" << endl
+         << "  -r   regex to check against additions and deletions" << endl
+         << endl
+         << "Takes a wikimedia data dump XML stream on standard in, and produces" << endl
+         << "a tab-separated stream of revisions on standard out:" << endl
+         << endl
+         << "title, articleid, revid, timestamp, anon, editor, editorid, minor, revlength, reventropy, revmd5" << endl
+         << ".... and additional fields for each regex executed against add/delete diffs" << endl
+         << endl
+         << "author: Erik Garrison <erik@hypervolu.me>" << endl;
 }
 
 
@@ -482,8 +510,12 @@ main(int argc, char *argv[])
     // in "simple" output, we don't print text and comments
     output_type = SIMPLE;
     char c;
+    string regex_name;
 
-    while ((c = getopt(argc, argv, "ht")) != -1)
+    // the user data struct which is passed to callback functions
+    revisionData data;
+
+    while ((c = getopt(argc, argv, "htn:r:")) != -1)
         switch (c)
         {
             case 'd':
@@ -491,6 +523,16 @@ main(int argc, char *argv[])
                 break;
             case 't':
                 output_type = FULL;
+                break;
+            case 'n':
+                regex_name = optarg;
+                break;
+            case 'r':
+                data.regexes.push_back(pcrecpp::RE(optarg, pcrecpp::UTF8()));
+                data.regex_names.push_back(regex_name);
+                if (!regex_name.empty()) {
+                    regex_name.clear();
+                }
                 break;
             case 'h':
                 print_usage(argv);
@@ -506,8 +548,6 @@ main(int argc, char *argv[])
     // create a new instance of the expat parser
     XML_Parser parser = XML_ParserCreate("UTF-8");
 
-    // initialize the user data struct which is passed to callback functions
-    revisionData data;  
     // initialize the elements of the struct to default values
     init_data(&data, output_type);
 
@@ -525,6 +565,38 @@ main(int argc, char *argv[])
 
     bool done;
     char buf[BUFSIZ];
+
+    // write header
+
+    cout << "title" << "\t"
+        << "articleid" << "\t"
+        << "revid" << "\t"
+        << "date" << " "
+        << "time" << "\t"
+        << "anon" << "\t"
+        << "editor" << "\t"
+        << "editor_id" << "\t"
+        << "minor" << "\t"
+        << "text_size" << "\t"
+        << "text_entropy" << "\t"
+        << "text_md5" << "\t"
+        << "reversion" << "\t"
+        << "additions_size" << "\t"
+        << "deletions_size";
+
+    int n = 0;
+    if (!data.regexes.empty()) {
+        for (vector<pcrecpp::RE>::iterator r = data.regexes.begin(); r != data.regexes.end(); ++r, ++n) {
+            if (data.regex_names.at(n).empty()) {
+                cout << "\t" << "regex_" << n << "_add"
+                     << "\t" << "regex_" << n << "_del";
+            } else {
+                cout << "\t" << data.regex_names.at(n) << "_add"
+                     << "\t" << data.regex_names.at(n) << "_del";
+            }
+        }
+    }
+    cout << endl;
     
     // shovel data into the parser
     do {
@@ -536,10 +608,8 @@ main(int argc, char *argv[])
         // passes the buffer of data to the parser and checks for error
         //   (this is where the callbacks are invoked)
         if (XML_Parse(parser, buf, len, done) == XML_STATUS_ERROR) {
-            fprintf(stderr,
-                "%s at line %d\n",
-                XML_ErrorString(XML_GetErrorCode(parser)),
-                (int) XML_GetCurrentLineNumber(parser));
+            cerr << XML_ErrorString(XML_GetErrorCode(parser)) << " at line "
+                 << (int) XML_GetCurrentLineNumber(parser) << endl;
             return 1;
         }
     } while (!done);
