@@ -498,7 +498,6 @@ void print_usage(char* argv[]) {
          << "text_length, text_entropy, text_md5, reversion, additions_size, deletions_size" << endl
          << ".... and additional fields for each regex executed against add/delete diffs" << endl
          << endl
-         << "Notes:" << endl
          << "Boolean fields are TRUE/FALSE except in the case of reversion, which is blank" << endl
          << "unless the article is a revert to a previous revision, in which case, it" << endl
          << "contains the revision ID of the revision which was reverted to." << endl
