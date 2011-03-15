@@ -28,9 +28,9 @@ using namespace std;
 
 #define MEGABYTE 1048576
 #define FIELD_BUFFER_SIZE 1024
-// 2048 KB in bytes + 1
-//#define TEXT_BUFFER_SIZE 2097153
-//#define TEXT_BUFFER_SIZE 10485760
+
+// this can be changed at runtime if we encounter an article larger than 10mb
+size_t text_buffer_size = 10 * MEGABYTE;
 
 enum elements { 
     TITLE, ARTICLEID, REVISION, REVID, TIMESTAMP, CONTRIBUTOR, 
@@ -162,7 +162,7 @@ void cleanup_article(revisionData *data) {
 static void 
 init_data(revisionData *data, outtype output_type)
 {
-    data->text = (char*) malloc(4 * MEGABYTE);  // 2MB is the article length limit, 4MB is 'safe'?
+    data->text = (char*) malloc(text_buffer_size);
     data->comment = (char*) malloc(FIELD_BUFFER_SIZE);
     data->title = (char*) malloc(FIELD_BUFFER_SIZE);
     data->articleid = (char*) malloc(FIELD_BUFFER_SIZE);
@@ -343,7 +343,6 @@ split_timestamp(revisionData *data)
 char*
 strlcatn(char *dest, const char *src, size_t dest_len, size_t n)
 {
-   //size_t dest_len = strlen(dest);
    size_t i;
 
    for (i = 0 ; i < n && src[i] != '\0' ; i++)
@@ -357,15 +356,18 @@ static void
 charhndl(void* vdata, const XML_Char* s, int len)
 { 
     revisionData* data = (revisionData*) vdata;
+    size_t bufsz;
     if (data->element != UNUSED && data->position != SKIP) {
-        //char t[len];
-        //strncpy(t,s,len);
-        //t[len] = '\0'; // makes t a well-formed string
         switch (data->element) {
             case TEXT:
-                   // printf("buffer length = %i, text: %s\n", len, t);
+                    // check if we'd overflow our buffer
+                    bufsz = data->text_size + len;
+                    if (bufsz + 1 > text_buffer_size) {
+                        data->text = (char*) realloc(data->text, bufsz + 1);
+                        text_buffer_size = bufsz + 1;
+                    }
                     strlcatn(data->text, s, data->text_size, len);
-                    data->text_size += len;
+                    data->text_size = bufsz;
                     break;
             case COMMENT:
                     strlcatn(data->comment, s, data->comment_size, len);
@@ -613,7 +615,7 @@ main(int argc, char *argv[])
         // passes the buffer of data to the parser and checks for error
         //   (this is where the callbacks are invoked)
         if (XML_Parse(parser, buf, len, done) == XML_STATUS_ERROR) {
-            cerr << XML_ErrorString(XML_GetErrorCode(parser)) << " at line "
+            cerr << "XML ERROR: " << XML_ErrorString(XML_GetErrorCode(parser)) << " at line "
                  << (int) XML_GetCurrentLineNumber(parser) << endl;
             return 1;
         }
