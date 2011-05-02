@@ -254,7 +254,9 @@ write_row(revisionData *data)
     vector<bool> regex_matches_adds;
     vector<bool> regex_matches_dels;
 
-    if (!data->last_text_tokens.empty()) {
+    if (data->last_text_tokens.empty()) {
+        additions = data->text;
+    } else {
         // do the diff
         
         dtl::Diff< string, vector<string> > d(data->last_text_tokens, text_tokens);
@@ -274,25 +276,22 @@ write_row(revisionData *data)
                 break;
             }
         }
-
-        if (!additions.empty()) {
-            //cout << "ADD: " << additions << endl;
-            for (vector<pcrecpp::RE>::iterator r = data->regexes.begin(); r != data->regexes.end(); ++r) {
-                pcrecpp::RE& regex = *r;
-                regex_matches_adds.push_back(regex.PartialMatch(additions));
-            }
+    }
+    
+    if (!additions.empty()) {
+        //cout << "ADD: " << additions << endl;
+        for (vector<pcrecpp::RE>::iterator r = data->regexes.begin(); r != data->regexes.end(); ++r) {
+            pcrecpp::RE& regex = *r;
+            regex_matches_adds.push_back(regex.PartialMatch(additions));
         }
+    }
 
-        if (!deletions.empty()) {
-            //cout << "DEL: " << deletions << endl;
-            for (vector<pcrecpp::RE>::iterator r = data->regexes.begin(); r != data->regexes.end(); ++r) {
-                pcrecpp::RE& regex = *r;
-                regex_matches_dels.push_back(regex.PartialMatch(deletions));
-            }
+    if (!deletions.empty()) {
+        //cout << "DEL: " << deletions << endl;
+        for (vector<pcrecpp::RE>::iterator r = data->regexes.begin(); r != data->regexes.end(); ++r) {
+            pcrecpp::RE& regex = *r;
+            regex_matches_dels.push_back(regex.PartialMatch(deletions));
         }
-
-        // apply regex to the diff
-
     }
 
     data->last_text_tokens = text_tokens;
@@ -490,7 +489,7 @@ void print_usage(char* argv[]) {
          << endl
          << "options:" << endl
          << "  -t   print text and comments after each line of tab separated data" << endl
-         << "  -n   name of the following regex (e.g. -N name -r \"...\")" << endl
+         << "  -n   name of the following regex (e.g. -n name -r \"...\")" << endl
          << "  -r   regex to check against additions and deletions" << endl
          << endl
          << "Takes a wikimedia data dump XML stream on standard in, and produces" << endl
