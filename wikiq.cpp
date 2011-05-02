@@ -489,7 +489,7 @@ void print_usage(char* argv[]) {
          << endl
          << "options:" << endl
          << "  -t   print text and comments after each line of tab separated data" << endl
-         << "  -n   name of the following regex (e.g. -N name -r \"...\")" << endl
+         << "  -n   name of the following regex (e.g. -n name -r \"...\")" << endl
          << "  -r   regex to check against additions and deletions" << endl
          << endl
          << "Takes a wikimedia data dump XML stream on standard in, and produces" << endl
