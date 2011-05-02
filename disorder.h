@@ -24,6 +24,10 @@
 #ifndef __DISORDER_H_
 #define __DISORDER_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Max number of bytes (i.e., tokens) */
 #define LIBDO_MAX_BYTES      256
 
@@ -58,5 +62,9 @@ float    get_max_entropy(void);
 
 /** Returns the ratio of entropy to maxentropy */
 float    get_entropy_ratio(void);
+
+#ifdef __cplusplus
+};
+#endif
 
 #endif
