@@ -57,6 +57,7 @@ typedef struct {
     char *text;
     vector<string> last_text_tokens;
     vector<pcrecpp::RE> regexes;
+    vector<pcrecpp::RE> wp_namespace_res;
     vector<string> regex_names;
     map<string, string> revision_md5; // used for detecting reversions
 
@@ -244,6 +245,22 @@ write_row(revisionData *data)
         text_tokens.push_back(text.substr(start, pos - start));
         start = pos;
         ++pos;
+    }
+
+    // skip this if the wp_namespace is not in the proscribed list of
+    // namespaces
+    bool wp_namespace_found = false;
+    if (!data->wp_namespace_res.empty()) {
+        for (vector<pcrecpp::RE>::iterator r = data->wp_namespace_res.begin(); r != data->wp_namespace_res.end(); ++r) {
+            pcrecpp::RE& wp_namespace_re = *r;
+            if (wp_namespace_re.PartialMatch(data->title)) {
+                wp_namespace_found = true;
+                break;
+            }
+        }
+        if (!wp_namespace_found) {
+            return;
+        }
     }
 
     //vector<string> additions;
@@ -488,9 +505,10 @@ void print_usage(char* argv[]) {
     cerr << "usage: <wikimedia dump xml> | " << argv[0] << "[options]" << endl
          << endl
          << "options:" << endl
-         << "  -t   print text and comments after each line of tab separated data" << endl
+         << "  -v   verbose mode prints text and comments after each line of tab separated data" << endl
          << "  -n   name of the following regex (e.g. -n name -r \"...\")" << endl
          << "  -r   regex to check against additions and deletions" << endl
+         << "  -t   regex(es) to check title against as a way of limiting output to specific namespaces" << endl
          << endl
          << "Takes a wikimedia data dump XML stream on standard in, and produces" << endl
          << "a tab-separated stream of revisions on standard out:" << endl
@@ -521,13 +539,13 @@ main(int argc, char *argv[])
     // the user data struct which is passed to callback functions
     revisionData data;
 
-    while ((c = getopt(argc, argv, "htn:r:")) != -1)
+    while ((c = getopt(argc, argv, "hvn:r:t:")) != -1)
         switch (c)
         {
             case 'd':
                 dry_run = 1;
                 break;
-            case 't':
+            case 'v':
                 output_type = FULL;
                 break;
             case 'n':
@@ -543,6 +561,9 @@ main(int argc, char *argv[])
             case 'h':
                 print_usage(argv);
                 exit(0);
+                break;
+            case 't':
+                data.wp_namespace_res.push_back(pcrecpp::RE(optarg, pcrecpp::UTF8()));
                 break;
         }
 
