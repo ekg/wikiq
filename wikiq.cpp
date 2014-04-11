@@ -56,9 +56,14 @@ typedef struct {
     char *comment;
     char *text;
     vector<string> last_text_tokens;
+
+    // title regexes
     vector<pcrecpp::RE> title_regexes;
+
+    // regexes for looking within diffs
     vector<string> diff_regex_names;
     vector<pcrecpp::RE> diff_regexes;
+
     map<string, string> revision_md5; // used for detecting reversions
 
     // track string size of the elements, to prevent O(N^2) processing in charhndl
@@ -507,8 +512,8 @@ void print_usage(char* argv[]) {
          << endl
          << "options:" << endl
          << "  -v   verbose mode prints text and comments after each line of tab separated data" << endl
-         << "  -n   name of the following regex (e.g. -n name -r \"...\")" << endl
-         << "  -r   regex to check against additions and deletions" << endl
+         << "  -N   name of the following regex for diffs (e.g. -N name -R \"...\")" << endl
+         << "  -R   regex to check against diffs (i.e., additions and deletions)" << endl
          << "  -t   parse revisions only from pages whose titles match regex(es)" << endl
          << endl
          << "Takes a wikimedia data dump XML stream on standard in, and produces" << endl
@@ -549,10 +554,10 @@ main(int argc, char *argv[])
             case 'v':
                 output_type = FULL;
                 break;
-            case 'n':
+            case 'N':
                 diff_regex_name = optarg;
                 break;
-            case 'r':
+            case 'R':
                 data.diff_regexes.push_back(pcrecpp::RE(optarg, pcrecpp::UTF8()));
                 data.diff_regex_names.push_back(diff_regex_name);
                 if (!diff_regex_name.empty()) {
