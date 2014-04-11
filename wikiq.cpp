@@ -56,9 +56,9 @@ typedef struct {
     char *comment;
     char *text;
     vector<string> last_text_tokens;
-    vector<pcrecpp::RE> regexes;
     vector<pcrecpp::RE> title_regexes;
-    vector<string> regex_names;
+    vector<string> diff_regex_names;
+    vector<pcrecpp::RE> diff_regexes;
     map<string, string> revision_md5; // used for detecting reversions
 
     // track string size of the elements, to prevent O(N^2) processing in charhndl
@@ -269,8 +269,8 @@ write_row(revisionData *data)
     string additions;
     string deletions;
 
-    vector<bool> regex_matches_adds;
-    vector<bool> regex_matches_dels;
+    vector<bool> diff_regex_matches_adds;
+    vector<bool> diff_regex_matches_dels;
 
     if (data->last_text_tokens.empty()) {
         additions = data->text;
@@ -298,17 +298,17 @@ write_row(revisionData *data)
     
     if (!additions.empty()) {
         //cout << "ADD: " << additions << endl;
-        for (vector<pcrecpp::RE>::iterator r = data->regexes.begin(); r != data->regexes.end(); ++r) {
-            pcrecpp::RE& regex = *r;
-            regex_matches_adds.push_back(regex.PartialMatch(additions));
+        for (vector<pcrecpp::RE>::iterator r = data->diff_regexes.begin(); r != data->diff_regexes.end(); ++r) {
+            pcrecpp::RE& diff_regex = *r;
+            diff_regex_matches_adds.push_back(diff_regex.PartialMatch(additions));
         }
     }
 
     if (!deletions.empty()) {
         //cout << "DEL: " << deletions << endl;
-        for (vector<pcrecpp::RE>::iterator r = data->regexes.begin(); r != data->regexes.end(); ++r) {
-            pcrecpp::RE& regex = *r;
-            regex_matches_dels.push_back(regex.PartialMatch(deletions));
+        for (vector<pcrecpp::RE>::iterator r = data->diff_regexes.begin(); r != data->diff_regexes.end(); ++r) {
+            pcrecpp::RE& diff_regex = *r;
+            diff_regex_matches_dels.push_back(diff_regex.PartialMatch(deletions));
         }
     }
 
@@ -333,9 +333,9 @@ write_row(revisionData *data)
         << (int) additions.size() << "\t"
         << (int) deletions.size();
 
-    for (int n = 0; n < data->regex_names.size(); ++n) {
-        cout << "\t" << ((!regex_matches_adds.empty() && regex_matches_adds.at(n)) ? "TRUE" : "FALSE")
-             << "\t" << ((!regex_matches_dels.empty() && regex_matches_dels.at(n)) ? "TRUE" : "FALSE");
+    for (int n = 0; n < data->diff_regex_names.size(); ++n) {
+        cout << "\t" << ((!diff_regex_matches_adds.empty() && diff_regex_matches_adds.at(n)) ? "TRUE" : "FALSE")
+             << "\t" << ((!diff_regex_matches_dels.empty() && diff_regex_matches_dels.at(n)) ? "TRUE" : "FALSE");
     }
     cout << endl;
 
@@ -535,7 +535,7 @@ main(int argc, char *argv[])
     // in "simple" output, we don't print text and comments
     output_type = SIMPLE;
     char c;
-    string regex_name;
+    string diff_regex_name;
 
     // the user data struct which is passed to callback functions
     revisionData data;
@@ -550,13 +550,13 @@ main(int argc, char *argv[])
                 output_type = FULL;
                 break;
             case 'n':
-                regex_name = optarg;
+                diff_regex_name = optarg;
                 break;
             case 'r':
-                data.regexes.push_back(pcrecpp::RE(optarg, pcrecpp::UTF8()));
-                data.regex_names.push_back(regex_name);
-                if (!regex_name.empty()) {
-                    regex_name.clear();
+                data.diff_regexes.push_back(pcrecpp::RE(optarg, pcrecpp::UTF8()));
+                data.diff_regex_names.push_back(diff_regex_name);
+                if (!diff_regex_name.empty()) {
+                    diff_regex_name.clear();
                 }
                 break;
             case 'h':
@@ -613,14 +613,14 @@ main(int argc, char *argv[])
         << "deletions_size";
 
     int n = 0;
-    if (!data.regexes.empty()) {
-        for (vector<pcrecpp::RE>::iterator r = data.regexes.begin(); r != data.regexes.end(); ++r, ++n) {
-            if (data.regex_names.at(n).empty()) {
+    if (!data.diff_regexes.empty()) {
+        for (vector<pcrecpp::RE>::iterator r = data.diff_regexes.begin(); r != data.diff_regexes.end(); ++r, ++n) {
+            if (data.diff_regex_names.at(n).empty()) {
                 cout << "\t" << "regex_" << n << "_add"
                      << "\t" << "regex_" << n << "_del";
             } else {
-                cout << "\t" << data.regex_names.at(n) << "_add"
-                     << "\t" << data.regex_names.at(n) << "_del";
+                cout << "\t" << data.diff_regex_names.at(n) << "_add"
+                     << "\t" << data.diff_regex_names.at(n) << "_del";
             }
         }
     }
