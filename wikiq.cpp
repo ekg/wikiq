@@ -60,6 +60,10 @@ typedef struct {
     // title regexes
     vector<pcrecpp::RE> title_regexes;
 
+    // regexes for checking with revisions
+    vector<string> content_regex_names;
+    vector<pcrecpp::RE> content_regexes;
+
     // regexes for looking within diffs
     vector<string> diff_regex_names;
     vector<pcrecpp::RE> diff_regexes;
@@ -269,6 +273,15 @@ write_row(revisionData *data)
         }
     }
 
+    // search the content of the revision for a any of the regexes
+    vector<bool> content_regex_matches;
+    if (!data->content_regexes.empty()) {
+        for (vector<pcrecpp::RE>::iterator r = data->content_regexes.begin(); r != data->content_regexes.end(); ++r) {
+            pcrecpp::RE& content_regex = *r;
+            content_regex_matches.push_back(content_regex.PartialMatch(data->text));
+        }
+    }
+
     //vector<string> additions;
     //vector<string> deletions;
     string additions;
@@ -337,6 +350,11 @@ write_row(revisionData *data)
         << reverted_to << "\t"
         << (int) additions.size() << "\t"
         << (int) deletions.size();
+
+    for (int n = 0; n < data->content_regex_names.size(); ++n) {
+        cout << "\t" << ((!content_regex_matches.empty()
+			  && content_regex_matches.at(n)) ? "TRUE" : "FALSE");
+    }
 
     for (int n = 0; n < data->diff_regex_names.size(); ++n) {
         cout << "\t" << ((!diff_regex_matches_adds.empty() && diff_regex_matches_adds.at(n)) ? "TRUE" : "FALSE")
@@ -512,6 +530,8 @@ void print_usage(char* argv[]) {
          << endl
          << "options:" << endl
          << "  -v   verbose mode prints text and comments after each line of tab separated data" << endl
+         << "  -n   name of the following regex for contet (e.g. -n name -r \"...\")" << endl
+         << "  -r   regex to check against content of the revision" << endl
          << "  -N   name of the following regex for diffs (e.g. -N name -R \"...\")" << endl
          << "  -R   regex to check against diffs (i.e., additions and deletions)" << endl
          << "  -t   parse revisions only from pages whose titles match regex(es)" << endl
@@ -541,6 +561,7 @@ main(int argc, char *argv[])
     output_type = SIMPLE;
     char c;
     string diff_regex_name;
+    string content_regex_name;
 
     // the user data struct which is passed to callback functions
     revisionData data;
@@ -553,6 +574,16 @@ main(int argc, char *argv[])
                 break;
             case 'v':
                 output_type = FULL;
+                break;
+            case 'n':
+                content_regex_name = optarg;
+                break;
+            case 'r':
+                data.content_regexes.push_back(pcrecpp::RE(optarg, pcrecpp::UTF8()));
+                data.content_regex_names.push_back(content_regex_name);
+                if (!content_regex_name.empty()) {
+                    content_regex_name.clear();
+                }
                 break;
             case 'N':
                 diff_regex_name = optarg;
@@ -618,6 +649,17 @@ main(int argc, char *argv[])
         << "deletions_size";
 
     int n = 0;
+    if (!data.content_regexes.empty()) {
+        for (vector<pcrecpp::RE>::iterator r = data.content_regexes.begin();
+	     r != data.content_regexes.end(); ++r, ++n) {
+            if (data.content_regex_names.at(n).empty()) {
+	        cout << "\t" << "regex" << n;
+            } else {
+	        cout << "\t" << data.content_regex_names.at(n);
+            }
+        }
+    }
+
     if (!data.diff_regexes.empty()) {
         for (vector<pcrecpp::RE>::iterator r = data.diff_regexes.begin(); r != data.diff_regexes.end(); ++r, ++n) {
             if (data.diff_regex_names.at(n).empty()) {
@@ -629,6 +671,7 @@ main(int argc, char *argv[])
             }
         }
     }
+
     cout << endl;
     
     // shovel data into the parser
