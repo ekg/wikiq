@@ -11,7 +11,6 @@
 #include <stdlib.h>
 #include "expat.h"
 #include <getopt.h>
-#include "disorder.h"
 #include "md5.h"
 #include "dtl/dtl.hpp"
 #include <vector>
@@ -345,7 +344,6 @@ write_row(revisionData *data)
         << data->editorid << "\t"
         << ((data->minor) ? "TRUE" : "FALSE") << "\t"
         << (unsigned int) data->text_size << "\t"
-        << shannon_H(data->text, data->text_size) << "\t"
         << md5_hex_output << "\t"
         << reverted_to << "\t"
         << (int) additions.size() << "\t"
@@ -540,7 +538,7 @@ void print_usage(char* argv[]) {
          << "a tab-separated stream of revisions on standard out:" << endl
          << endl
          << "title, articleid, revid, timestamp, anon, editor, editorid, minor," << endl
-         << "text_length, text_entropy, text_md5, reversion, additions_size, deletions_size" << endl
+         << "text_length, text_md5, reversion, additions_size, deletions_size" << endl
          << ".... and additional fields for each regex executed against add/delete diffs" << endl
          << endl
          << "Boolean fields are TRUE/FALSE except in the case of reversion, which is blank" << endl
@@ -642,7 +640,6 @@ main(int argc, char *argv[])
         << "editor_id" << "\t"
         << "minor" << "\t"
         << "text_size" << "\t"
-        << "text_entropy" << "\t"
         << "text_md5" << "\t"
         << "reversion" << "\t"
         << "additions_size" << "\t"
