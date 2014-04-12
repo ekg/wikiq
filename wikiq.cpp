@@ -545,7 +545,8 @@ void print_usage(char* argv[]) {
          << "unless the article is a revert to a previous revision, in which case, it" << endl
          << "contains the revision ID of the revision which was reverted to." << endl
          << endl
-         << "author: Erik Garrison <erik@hypervolu.me>" << endl;
+         << "authors: Erik Garrison <erik@hypervolu.me>" << endl;
+         << "         Benjamin Mako Hill <mako@atdot.cc>" << endl;
 }
 
 
