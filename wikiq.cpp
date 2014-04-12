@@ -635,7 +635,7 @@ main(int argc, char *argv[])
     cout << "title" << "\t"
         << "articleid" << "\t"
         << "revid" << "\t"
-        << "date" << " "
+        << "date" << "_"
         << "time" << "\t"
         << "anon" << "\t"
         << "editor" << "\t"
