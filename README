@@ -11,7 +11,8 @@ comments) from large XML datasets.
 
 use:
 
-To use, first make sure you have libexpat and libpcrecpp installed, then:
+To use, first make sure you have libexpat and libpcrecpp installed (e.g.
+via packages libexpat1 and libpcre3-dev on Ubuntu), then:
 
     % make
     % ./wikiq -h  # prints usage
