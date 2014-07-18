@@ -528,7 +528,7 @@ void print_usage(char* argv[]) {
          << endl
          << "options:" << endl
          << "  -v   verbose mode prints text and comments after each line of tab separated data" << endl
-         << "  -n   name of the following regex for contet (e.g. -n name -r \"...\")" << endl
+         << "  -n   name of the following regex for content (e.g. -n name -r \"...\")" << endl
          << "  -r   regex to check against content of the revision" << endl
          << "  -N   name of the following regex for diffs (e.g. -N name -R \"...\")" << endl
          << "  -R   regex to check against diffs (i.e., additions and deletions)" << endl
