@@ -1,13 +1,12 @@
 CXXFLAGS = -O3 
 CFLAGS = $(CXXFLAGS)
-OBJECTS = wikiq.o md5.o disorder.o 
+OBJECTS = wikiq.o md5.o 
 
 all: wikiq
 
 wikiq: $(OBJECTS)
 	$(CXX) $(CXXFLAGS) $(OBJECTS) -lpcrecpp -lpcre -lexpat -o wikiq
 
-disorder.o: disorder.h
 md5.o: md5.h
 
 clean:

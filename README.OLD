@@ -1,0 +1,45 @@
+wikiq: a simple and fast stream-based MediaWiki XML dump parser
+
+authors: Erik Garrison <erik@hypervolu.me>
+         Benjamin Mako Hill <mako@atdot.cc>
+
+overview:
+
+wikiq is written in C++ using expat.  It is designed to enable
+researchers to rapidly extract revision histories (minus text and
+comments) from large XML datasets.
+
+use:
+
+To use, first make sure you have libexpat and libpcrecpp installed (e.g.
+via packages libexpat1 and libpcre3-dev on Debian or Ubuntu), then:
+
+    % make
+    % ./wikiq -h  # prints usage
+    % 7za e -so hugewikidatadump.xml | ./wikiq >hugewikidatadump.tsv
+
+
+features:
+
+In addition to parsing WikiMedia XML data dumps into a tab-separated
+tabular format, wikiq can match Perl-compatible regular expressions
+against revision content, can extract article diffs, and can match
+regexes against the additions and deletions between revisions.  Any
+number of regular expressions may be supplied on the command line, and
+may be tagged using the '-n' and -N options.
+
+MD5 checksums of revisions are used at runtime.
+
+output:
+
+wikiq generates these fields for each revision:
+
+title, articleid, revid, timestamp, anon, editor, editorid, minor,
+text_length, text_md5, reversion, additions_size, deletions_size
+.... and additional fields for each regex executed against content or
+added/deleted diffs
+
+Boolean fields are TRUE/FALSE except in the case of reversion, which is blank
+unless the article is a revert to a previous revision, in which case, it
+contains the revision ID of the revision which was reverted to.
+

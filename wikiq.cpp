@@ -11,7 +11,6 @@
 #include <stdlib.h>
 #include "expat.h"
 #include <getopt.h>
-#include "disorder.h"
 #include "md5.h"
 #include "dtl/dtl.hpp"
 #include <vector>
@@ -56,9 +55,18 @@ typedef struct {
     char *comment;
     char *text;
     vector<string> last_text_tokens;
-    vector<pcrecpp::RE> regexes;
-    vector<pcrecpp::RE> wp_namespace_res;
-    vector<string> regex_names;
+
+    // title regexes
+    vector<pcrecpp::RE> title_regexes;
+
+    // regexes for checking with revisions
+    vector<string> content_regex_names;
+    vector<pcrecpp::RE> content_regexes;
+
+    // regexes for looking within diffs
+    vector<string> diff_regex_names;
+    vector<pcrecpp::RE> diff_regexes;
+
     map<string, string> revision_md5; // used for detecting reversions
 
     // track string size of the elements, to prevent O(N^2) processing in charhndl
@@ -247,19 +255,29 @@ write_row(revisionData *data)
         ++pos;
     }
 
-    // skip this if the wp_namespace is not in the proscribed list of
-    // namespaces
-    bool wp_namespace_found = false;
-    if (!data->wp_namespace_res.empty()) {
-        for (vector<pcrecpp::RE>::iterator r = data->wp_namespace_res.begin(); r != data->wp_namespace_res.end(); ++r) {
-            pcrecpp::RE& wp_namespace_re = *r;
-            if (wp_namespace_re.PartialMatch(data->title)) {
-                wp_namespace_found = true;
+    // look to see if (a) we've passed in a list of /any/ title_regexes
+    // and (b) if all of the title_regex_matches match
+    // if (a) is true and (b) is not, we return
+    bool any_title_regex_match = false;
+    if (!data->title_regexes.empty()) {
+        for (vector<pcrecpp::RE>::iterator r = data->title_regexes.begin(); r != data->title_regexes.end(); ++r) {
+            pcrecpp::RE& title_regex = *r;
+            if (title_regex.PartialMatch(data->title)) {
+                any_title_regex_match = true;
                 break;
             }
         }
-        if (!wp_namespace_found) {
+        if (!any_title_regex_match) {
             return;
+        }
+    }
+
+    // search the content of the revision for a any of the regexes
+    vector<bool> content_regex_matches;
+    if (!data->content_regexes.empty()) {
+        for (vector<pcrecpp::RE>::iterator r = data->content_regexes.begin(); r != data->content_regexes.end(); ++r) {
+            pcrecpp::RE& content_regex = *r;
+            content_regex_matches.push_back(content_regex.PartialMatch(data->text));
         }
     }
 
@@ -268,8 +286,8 @@ write_row(revisionData *data)
     string additions;
     string deletions;
 
-    vector<bool> regex_matches_adds;
-    vector<bool> regex_matches_dels;
+    vector<bool> diff_regex_matches_adds;
+    vector<bool> diff_regex_matches_dels;
 
     if (data->last_text_tokens.empty()) {
         additions = data->text;
@@ -297,17 +315,17 @@ write_row(revisionData *data)
     
     if (!additions.empty()) {
         //cout << "ADD: " << additions << endl;
-        for (vector<pcrecpp::RE>::iterator r = data->regexes.begin(); r != data->regexes.end(); ++r) {
-            pcrecpp::RE& regex = *r;
-            regex_matches_adds.push_back(regex.PartialMatch(additions));
+        for (vector<pcrecpp::RE>::iterator r = data->diff_regexes.begin(); r != data->diff_regexes.end(); ++r) {
+            pcrecpp::RE& diff_regex = *r;
+            diff_regex_matches_adds.push_back(diff_regex.PartialMatch(additions));
         }
     }
 
     if (!deletions.empty()) {
         //cout << "DEL: " << deletions << endl;
-        for (vector<pcrecpp::RE>::iterator r = data->regexes.begin(); r != data->regexes.end(); ++r) {
-            pcrecpp::RE& regex = *r;
-            regex_matches_dels.push_back(regex.PartialMatch(deletions));
+        for (vector<pcrecpp::RE>::iterator r = data->diff_regexes.begin(); r != data->diff_regexes.end(); ++r) {
+            pcrecpp::RE& diff_regex = *r;
+            diff_regex_matches_dels.push_back(diff_regex.PartialMatch(deletions));
         }
     }
 
@@ -326,15 +344,19 @@ write_row(revisionData *data)
         << data->editorid << "\t"
         << ((data->minor) ? "TRUE" : "FALSE") << "\t"
         << (unsigned int) data->text_size << "\t"
-        << shannon_H(data->text, data->text_size) << "\t"
         << md5_hex_output << "\t"
         << reverted_to << "\t"
         << (int) additions.size() << "\t"
         << (int) deletions.size();
 
-    for (int n = 0; n < data->regex_names.size(); ++n) {
-        cout << "\t" << ((!regex_matches_adds.empty() && regex_matches_adds.at(n)) ? "TRUE" : "FALSE")
-             << "\t" << ((!regex_matches_dels.empty() && regex_matches_dels.at(n)) ? "TRUE" : "FALSE");
+    for (int n = 0; n < data->content_regex_names.size(); ++n) {
+        cout << "\t" << ((!content_regex_matches.empty()
+			  && content_regex_matches.at(n)) ? "TRUE" : "FALSE");
+    }
+
+    for (int n = 0; n < data->diff_regex_names.size(); ++n) {
+        cout << "\t" << ((!diff_regex_matches_adds.empty() && diff_regex_matches_adds.at(n)) ? "TRUE" : "FALSE")
+             << "\t" << ((!diff_regex_matches_dels.empty() && diff_regex_matches_dels.at(n)) ? "TRUE" : "FALSE");
     }
     cout << endl;
 
@@ -506,22 +528,25 @@ void print_usage(char* argv[]) {
          << endl
          << "options:" << endl
          << "  -v   verbose mode prints text and comments after each line of tab separated data" << endl
-         << "  -n   name of the following regex (e.g. -n name -r \"...\")" << endl
-         << "  -r   regex to check against additions and deletions" << endl
-         << "  -t   regex(es) to check title against as a way of limiting output to specific namespaces" << endl
+         << "  -n   name of the following regex for content (e.g. -n name -r \"...\")" << endl
+         << "  -r   regex to check against content of the revision" << endl
+         << "  -N   name of the following regex for diffs (e.g. -N name -R \"...\")" << endl
+         << "  -R   regex to check against diffs (i.e., additions and deletions)" << endl
+         << "  -t   parse revisions only from pages whose titles match regex(es)" << endl
          << endl
          << "Takes a wikimedia data dump XML stream on standard in, and produces" << endl
          << "a tab-separated stream of revisions on standard out:" << endl
          << endl
          << "title, articleid, revid, timestamp, anon, editor, editorid, minor," << endl
-         << "text_length, text_entropy, text_md5, reversion, additions_size, deletions_size" << endl
+         << "text_length, text_md5, reversion, additions_size, deletions_size" << endl
          << ".... and additional fields for each regex executed against add/delete diffs" << endl
          << endl
          << "Boolean fields are TRUE/FALSE except in the case of reversion, which is blank" << endl
          << "unless the article is a revert to a previous revision, in which case, it" << endl
          << "contains the revision ID of the revision which was reverted to." << endl
          << endl
-         << "author: Erik Garrison <erik@hypervolu.me>" << endl;
+         << "authors: Erik Garrison <erik@hypervolu.me>" << endl
+         << "         Benjamin Mako Hill <mako@atdot.cc>" << endl;
 }
 
 
@@ -534,7 +559,8 @@ main(int argc, char *argv[])
     // in "simple" output, we don't print text and comments
     output_type = SIMPLE;
     char c;
-    string regex_name;
+    string diff_regex_name;
+    string content_regex_name;
 
     // the user data struct which is passed to callback functions
     revisionData data;
@@ -549,13 +575,23 @@ main(int argc, char *argv[])
                 output_type = FULL;
                 break;
             case 'n':
-                regex_name = optarg;
+                content_regex_name = optarg;
                 break;
             case 'r':
-                data.regexes.push_back(pcrecpp::RE(optarg, pcrecpp::UTF8()));
-                data.regex_names.push_back(regex_name);
-                if (!regex_name.empty()) {
-                    regex_name.clear();
+                data.content_regexes.push_back(pcrecpp::RE(optarg, pcrecpp::UTF8()));
+                data.content_regex_names.push_back(content_regex_name);
+                if (!content_regex_name.empty()) {
+                    content_regex_name.clear();
+                }
+                break;
+            case 'N':
+                diff_regex_name = optarg;
+                break;
+            case 'R':
+                data.diff_regexes.push_back(pcrecpp::RE(optarg, pcrecpp::UTF8()));
+                data.diff_regex_names.push_back(diff_regex_name);
+                if (!diff_regex_name.empty()) {
+                    diff_regex_name.clear();
                 }
                 break;
             case 'h':
@@ -563,7 +599,7 @@ main(int argc, char *argv[])
                 exit(0);
                 break;
             case 't':
-                data.wp_namespace_res.push_back(pcrecpp::RE(optarg, pcrecpp::UTF8()));
+                data.title_regexes.push_back(pcrecpp::RE(optarg, pcrecpp::UTF8()));
                 break;
         }
 
@@ -598,31 +634,42 @@ main(int argc, char *argv[])
     cout << "title" << "\t"
         << "articleid" << "\t"
         << "revid" << "\t"
-        << "date" << " "
+        << "date" << "_"
         << "time" << "\t"
         << "anon" << "\t"
         << "editor" << "\t"
         << "editor_id" << "\t"
         << "minor" << "\t"
         << "text_size" << "\t"
-        << "text_entropy" << "\t"
         << "text_md5" << "\t"
         << "reversion" << "\t"
         << "additions_size" << "\t"
         << "deletions_size";
 
     int n = 0;
-    if (!data.regexes.empty()) {
-        for (vector<pcrecpp::RE>::iterator r = data.regexes.begin(); r != data.regexes.end(); ++r, ++n) {
-            if (data.regex_names.at(n).empty()) {
-                cout << "\t" << "regex_" << n << "_add"
-                     << "\t" << "regex_" << n << "_del";
+    if (!data.content_regexes.empty()) {
+        for (vector<pcrecpp::RE>::iterator r = data.content_regexes.begin();
+	     r != data.content_regexes.end(); ++r, ++n) {
+            if (data.content_regex_names.at(n).empty()) {
+	        cout << "\t" << "regex" << n;
             } else {
-                cout << "\t" << data.regex_names.at(n) << "_add"
-                     << "\t" << data.regex_names.at(n) << "_del";
+	        cout << "\t" << data.content_regex_names.at(n);
             }
         }
     }
+
+    if (!data.diff_regexes.empty()) {
+        for (vector<pcrecpp::RE>::iterator r = data.diff_regexes.begin(); r != data.diff_regexes.end(); ++r, ++n) {
+            if (data.diff_regex_names.at(n).empty()) {
+                cout << "\t" << "regex_" << n << "_add"
+                     << "\t" << "regex_" << n << "_del";
+            } else {
+                cout << "\t" << data.diff_regex_names.at(n) << "_add"
+                     << "\t" << data.diff_regex_names.at(n) << "_del";
+            }
+        }
+    }
+
     cout << endl;
     
     // shovel data into the parser
